@@ -49,30 +49,49 @@ function ensureUser(db, userId) {
 
 // --- Prompt ---
 const SYSTEM_PROMPT = `You are an expert PTE tutor. Analyze the student's SWT summary. 
-IMPORTANT: Always output in PERSIAN. 
+IMPORTANT: Start the message with "📋" to ensure correct RTL text direction. Output in PERSIAN. Use Markdown.
+
 RULES:
-1. SWT must be EXACTLY ONE sentence. NEVER suggest splitting it.
-2. If readability is low, use semicolons (;) or commas (,) or relative clauses.
-3. Keep the layout clean for Telegram. Avoid complex Markdown tables.
+1. SWT must be EXACTLY ONE sentence.
+2. If you must use English terms, enclose them in parentheses (e.g., (connection)) to help the interface render text correctly.
+3. Use bullet points (•) for all lists.
+4. For "بررسی دقیق کانکشن‌ها", provide detailed, pedagogical, and long explanations for each point.
+
 Output Format:
-- خلاصه دانشجو: [متن]
-- تعداد کلمات: [عدد]
---- ارزیابی ---
-- محتوا: [امتیاز] از 5
-- فرمت (تک‌جمله‌ای): [امتیاز] از 5
-- گرامر و کانکشن: [امتیاز] از 5
---- بررسی کانکشن‌ها ---
-1. کانکشن‌های درست: [لیست]
-2. کانکشن‌های دارای ایراد:
-- (عبارت مورد نظر): [دلیل ایراد به فارسی] | پیشنهاد اصلاح: [عبارت اصلاح شده]
---- نکات کلیدی برای بهبود ---
-1. [نکته ۱ - بدون توصیه به شکستن جمله]
-2. [نکته ۲]
-3. [نکته ۳]
---- نسخه بازنویسی شده نهایی ---
-[یک جمله کامل و حرفه‌ای که محتوای دانشجو را در یک جمله بهبود داده است]`;
+📋 **خلاصه دانشجو:**
+[متن]
+
+📊 **تحلیل آماری:**
+• تعداد کلمات: [عدد]
+• محتوا: [امتیاز] از 5
+• فرمت تک‌جمله‌ای: [امتیاز] از 5
+• گرامر و کانکشن: [امتیاز] از 5
+
+🔗 **بررسی دقیق کانکشن‌ها:**
+• کانکشن‌های صحیح: [مورد]
+• کانکشن‌های دارای ایراد:
+  - (عبارت انگلیسی): [دلیل آموزشی مفصل و دقیق به فارسی] | پیشنهاد اصلاح: [عبارت اصلاح شده]
+
+💡 **نکات کلیدی برای بهبود:**
+• [نکته ۱]
+• [نکته ۲]
+
+✍️ **نسخه بازنویسی شده نهایی:**
+[جمله اصلاح شده در یک سطر]`;
 
 const LIMIT = 10;
+
+// --- Helper for Long Messages ---
+async function sendLongMessage(ctx, text) {
+    const MAX_LENGTH = 4000;
+    if (text.length <= MAX_LENGTH) {
+        return ctx.reply(text, { parse_mode: 'Markdown' });
+    }
+    const chunks = text.match(new RegExp('.{1,' + MAX_LENGTH + '}(\\s|$)', 'gs'));
+    for (const chunk of chunks) {
+        await ctx.reply(chunk, { parse_mode: 'Markdown' });
+    }
+}
 
 // --- Admin Commands ---
 bot.command('credit_status', async (ctx) => {
@@ -117,13 +136,13 @@ bot.on('text', async (ctx) => {
         if (db.users[userId].count >= LIMIT) return ctx.reply("❌ سهمیه تمام شده.");
         const response = await anthropic.messages.create({
             model: "claude-sonnet-4-6",
-            max_tokens: 1000,
+            max_tokens: 2000,
             system: SYSTEM_PROMPT,
             messages: [{ role: "user", content: ctx.message.text }],
         });
         db.users[userId].count += 1;
         await saveDB(db);
-        ctx.reply(response.content[0].text);
+        await sendLongMessage(ctx, response.content[0].text);
     } catch (e) { ctx.reply("⚠️ خطایی رخ داد."); }
 });
 
