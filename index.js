@@ -219,7 +219,16 @@ bot.on('text', async (ctx) => {
   }
 });
 
-bot.launch().then(() => console.log("Bot is running..."));
+// حذف کنید: bot.launch(); 
+
+// به جایش از این استفاده کنید:
+const port = process.env.PORT || 3000;
+bot.telegram.setWebhook(`${process.env.URL}/bot${process.env.TELEGRAM_BOT_TOKEN}`);
+app.use(bot.webhookCallback(`/bot${process.env.TELEGRAM_BOT_TOKEN}`));
+
+app.listen(port, () => {
+  console.log(`Bot is running on port ${port}`);
+});
 
 // برای جلوگیری از کرش کردن در سرورهای ابری
 process.once('SIGINT', () => bot.stop('SIGINT'));
