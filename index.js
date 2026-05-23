@@ -226,23 +226,27 @@ bot.on('text', async (ctx) => {
 const port = process.env.PORT || 10000;
 
 // استفاده از سرور اکسپرس برای پاسخ به وب‌هوک
+// ------------------- Webhook Setup -------------------
+// مهم: رندر پورت را در متغیر محیطی PORT می‌گذارد. اگر نبود، از ۳۰۰۰ استفاده کن (نه ۱۰ هزار)
+const port = process.env.PORT || 3000; 
+
 const webhookPath = `/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
-// ست کردن وب‌هوک و شروع به گوش دادن روی پورت اختصاصی
+// ست کردن وب‌هوک
 bot.telegram.setWebhook(`${process.env.URL}${webhookPath}`)
-  .then(() => {
-    console.log("Webhook set successfully!");
-  })
-  .catch((err) => {
-    console.error("Failed to set webhook:", err);
-  });
+  .then(() => console.log("Webhook set successfully!"))
+  .catch((err) => console.error("Failed to set webhook:", err));
 
 app.use(bot.webhookCallback(webhookPath));
 
-// استفاده از هندلر برای جلوگیری از تداخل پورت
-const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`Server is running and listening on port ${port}`);
+// شروع سرور بدون تلاش برای روی هم ریختن پورت‌ها
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server is running perfectly on port ${port}`);
 });
+
+// حذف هندلرهای SIGINT/SIGTERM که باعث کرش می‌شدند
+// چون در محیط ابری مثل رندر، خودِ سیستم عامل پروسه را مدیریت می‌کند.
+
 
 // مدیریت خطا در صورت اشغال بودن پورت
 server.on('error', (e) => {
