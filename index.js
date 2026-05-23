@@ -226,7 +226,7 @@ const port = process.env.PORT || 3000;
 bot.telegram.setWebhook(`${process.env.URL}/bot${process.env.TELEGRAM_BOT_TOKEN}`);
 app.use(bot.webhookCallback(`/bot${process.env.TELEGRAM_BOT_TOKEN}`));
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`Bot is running on port ${port}`);
 });
 
