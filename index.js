@@ -222,12 +222,37 @@ bot.on('text', async (ctx) => {
 // حذف کنید: bot.launch(); 
 
 // به جایش از این استفاده کنید:
-const port = process.env.PORT || 3000;
-bot.telegram.setWebhook(`${process.env.URL}/bot${process.env.TELEGRAM_BOT_TOKEN}`);
-app.use(bot.webhookCallback(`/bot${process.env.TELEGRAM_BOT_TOKEN}`));
+// ------------------- Webhook Setup -------------------
+const port = process.env.PORT || 10000;
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Bot is running on port ${port}`);
+// استفاده از سرور اکسپرس برای پاسخ به وب‌هوک
+const webhookPath = `/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+
+// ست کردن وب‌هوک و شروع به گوش دادن روی پورت اختصاصی
+bot.telegram.setWebhook(`${process.env.URL}${webhookPath}`)
+  .then(() => {
+    console.log("Webhook set successfully!");
+  })
+  .catch((err) => {
+    console.error("Failed to set webhook:", err);
+  });
+
+app.use(bot.webhookCallback(webhookPath));
+
+// استفاده از هندلر برای جلوگیری از تداخل پورت
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`Server is running and listening on port ${port}`);
+});
+
+// مدیریت خطا در صورت اشغال بودن پورت
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is busy, retrying...`);
+    setTimeout(() => {
+      server.close();
+      server.listen(port, '0.0.0.0');
+    }, 2000);
+  }
 });
 
 // برای جلوگیری از کرش کردن در سرورهای ابری
