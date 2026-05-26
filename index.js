@@ -160,11 +160,12 @@ bot.on('text', async (ctx) => {
         }
 
         const response = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20240620", // اصلاح نام مدل به نسخه دقیق
-            max_tokens: 2000,
+            model: "claude-4-6-sonnet", // تنظیم مدل روی Sonnet 4.6
+            max_tokens: 4000,            // بازگرداندن به مقدار استاندارد و بالا برای جلوگیری از قطع شدن متن
             system: SYSTEM_PROMPT,
             messages: [{ role: "user", content: ctx.message.text }],
         });
+
 
         // ۳. کسر سهمیه (فقط اگر کاربر ادمین نباشد)
         if (!isAdmin(userId)) {
