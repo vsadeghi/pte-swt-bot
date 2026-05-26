@@ -60,9 +60,11 @@ async function saveDB(data) {
     }
 }
 
+// limit = سقف مجاز، count = تعداد استفاده شده
 function ensureUser(db, userId) {
     if (!db.users) db.users = {};
-    if (!db.users[userId]) db.users[userId] = { count: 0 };
+    if (!db.users[userId]) db.users[userId] = { count: 0, limit: LIMIT };
+    if (db.users[userId].limit === undefined) db.users[userId].limit = LIMIT; // migrate old records
     return db;
 }
 
@@ -108,9 +110,9 @@ Output Format:
 ---
 
 🎯 **جملات کلیدی پیشنهادی (AI Selection):**
-• جملات منتخب: 
-  \`[۱]\` 
-  \`[۲]\` 
+• جملات منتخب:
+  \`[۱]\`
+  \`[۲]\`
   \`[۳]\`
 • دلیل اهمیت (فارسی): [توضیح]
 
@@ -150,7 +152,8 @@ bot.command('credit_status', async (ctx) => {
     if (!target) return ctx.reply("فرمت: /credit_status [ID]");
     const db = await getDB();
     const used = db.users?.[target]?.count || 0;
-    ctx.reply(`📊 وضعیت ${target}: ${used}/${LIMIT}`);
+    const limit = db.users?.[target]?.limit ?? LIMIT;
+    ctx.reply(`📊 وضعیت ${target}:\nاستفاده شده: ${used}\nسقف: ${limit}\nباقی‌مانده: ${limit - used}`);
 });
 
 bot.command('credit_add', async (ctx) => {
@@ -159,11 +162,11 @@ bot.command('credit_add', async (ctx) => {
     const target = parts[1];
     const n = parseInt(parts[2]);
     if (!target || isNaN(n)) return ctx.reply("فرمت: /credit_add [ID] [تعداد]");
-    
+
     let db = ensureUser(await getDB(), target);
-    db.users[target].count = Math.max(0, db.users[target].count - n);
+    db.users[target].limit = (db.users[target].limit ?? LIMIT) + n; // سقف رو بالا می‌بره
     await saveDB(db);
-    ctx.reply(`✅ تعداد ${n} اعتبار به کاربر ${target} اضافه شد.`);
+    ctx.reply(`✅ ${n} اعتبار به کاربر ${target} اضافه شد.\nسقف جدید: ${db.users[target].limit}`);
 });
 
 // --- Text Handler ---
@@ -172,10 +175,12 @@ bot.on('text', async (ctx) => {
 
     const userId = String(ctx.from.id);
     if (!isAdmin(userId) && !allowedUserIds.has(userId)) return ctx.reply("❌ دسترسی غیرمجاز.");
-    
+
     try {
         let db = ensureUser(await getDB(), userId);
-        if (!isAdmin(userId) && db.users[userId].count >= LIMIT) {
+        const userLimit = db.users[userId].limit ?? LIMIT;
+
+        if (!isAdmin(userId) && db.users[userId].count >= userLimit) {
             return ctx.reply("❌ سهمیه تمام شده.");
         }
 
