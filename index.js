@@ -23,25 +23,20 @@ async function syncWhitelist() {
             .map(row => row.replace('\r', '').trim())
             .filter(row => row !== "" && !isNaN(row));
         allowedUserIds = new Set(rows);
-        console.log("Whitelist updated. Count:", allowedUserIds.size);
     } catch (err) { console.error("Whitelist sync failed:", err); }
 }
 setInterval(syncWhitelist, 300000);
 syncWhitelist();
 
-// --- DB Logic (Migrated to npoint.io for stability) ---
+// --- DB Logic (npoint.io) ---
 async function getDB() {
     try {
         const response = await fetch(`https://api.npoint.io/${process.env.JSONBIN_ID}`, {
             headers: { "Cache-Control": "no-cache" }
         });
         if (!response.ok) return { users: {} };
-        const data = await response.json();
-        return data || { users: {} };
-    } catch (err) {
-        console.error("DB Read Error:", err);
-        return { users: {} };
-    }
+        return await response.json();
+    } catch (err) { return { users: {} }; }
 }
 
 async function saveDB(data) {
@@ -51,9 +46,7 @@ async function saveDB(data) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(data)
         });
-    } catch (err) {
-        console.error("DB Save Error:", err);
-    }
+    } catch (err) {}
 }
 
 function ensureUser(db, userId) {
@@ -62,8 +55,7 @@ function ensureUser(db, userId) {
     return db;
 }
 
-// --- Prompt (Exactly as you provided) ---
-// --- Updated Prompt (With Flexible Connection Logic) ---
+// --- Prompt Setup ---
 const SYSTEM_PROMPT = `You are an expert PTE tutor. Analyze the student's SWT (Summarize Written Text) with high pedagogical detail.
 IMPORTANT: Always start the message with "📋" to fix RTL direction. Use Markdown.
 ⚠️ IMPORTANT PTE RULE: If the word count is more than 75 words, the score is automatically ZERO.
@@ -87,7 +79,7 @@ Output Format:
   - [توضیح استفاده درست از کانکتورها و منطق اتصال]
 
 • **کانکشن‌های دارای ایراد:**
-  - **ایراد [شماره]:** [توضیح کامل و تشریحی ایراد به فارسی - چرا غلط است؟ چه قاعده گرامری نقض شده؟]
+  - **ایراد [شماره]:** [توضیح کامل و تشریحی ایراد به فارسی]
   - عبارت اصلی دانشجو: \`[عبارت]\`
   - پیشنهاد اصلاح: \`[اصلاح شده]\`
 
@@ -109,109 +101,100 @@ Output Format:
   \`[۱]\` 
   \`[۲]\` 
   \`[۳]\`
-• دلیل اهمیت (فارسی): [توضیح دلیل انتخاب این جملات]
+• دلیل اهمیت (فارسی): [توضیح]
 
 ---
 
 ✨ **ترکیب پیشنهادی هوش مصنوعی (Best Connection):**
-\`[یک جمله واحد نهایی و حرفه‌ای با استفاده از بهینه‌ترین ساختار گرامری (مانند FANBOYS، Subordinators، یا Transitions) که بهترین جریان منطقی را ایجاد می‌کند]\`
+\`[یک جمله واحد نهایی و حرفه‌ای با استفاده از بهینه‌ترین ساختار گرامری (مانند FANBOYS، Subordinators، یا Transitions) متناسب با منطق متن]\`
 (تعداد کلمات: [عدد] ✅)
 
 ---
 
 💡 **نکات آموزشی انتخاب ایده:**
-• [نکته آموزشی در مورد نحوه انتخاب کلمات کلیدی یا ساختارسازی]
+• [نکته آموزشی]
 `;
-
-// بقیه کد (Handlerها و منطق دیتابیس) دقیقاً مانند قبل باقی می‌ماند.
 
 const LIMIT = 10;
 
-// --- Helper for Long Messages ---
-async function sendLongMessage(ctx, text) {
-    const MAX_LENGTH = 3800;
-    if (text.length <= MAX_LENGTH) {
-        return ctx.reply(text, { parse_mode: 'Markdown' });
-    }
-    const chunks = text.match(new RegExp('.{1,' + MAX_LENGTH + '}(\\s|$)', 'gs'));
-    for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: 'Markdown' });
+// --- Safe Multi-part Reply ---
+async function safeReply(ctx, text) {
+    const sections = text.split('---');
+    for (const section of sections) {
+        if (!section.trim()) continue;
+        try {
+            await ctx.reply(section.trim(), { parse_mode: 'Markdown' });
+        } catch (e) {
+            await ctx.reply(section.trim());
+        }
     }
 }
-
-// --- Admin Commands ---
-bot.command('credit_status', async (ctx) => {
-    if (!isAdmin(ctx.from.id)) return;
-    const targetUserId = ctx.message.text.split(/\s+/)[1];
-    if (!targetUserId) return ctx.reply("فرمت صحیح: /credit_status <userId>");
-    const db = await getDB();
-    const used = db.users?.[targetUserId]?.count ?? 0;
-    ctx.reply(`ℹ️ وضعیت کاربر\nUser: ${targetUserId}\nUsed: ${used}\nLeft: ${Math.max(0, LIMIT - used)}\nLimit: ${LIMIT}`);
-});
-
-bot.command('credit_reset', async (ctx) => {
-    if (!isAdmin(ctx.from.id)) return;
-    const targetUserId = ctx.message.text.split(/\s+/)[1];
-    if (!targetUserId) return ctx.reply("فرمت صحیح: /credit_reset <userId>");
-    const db = ensureUser(await getDB(), targetUserId);
-    db.users[targetUserId].count = 0;
-    await saveDB(db);
-    ctx.reply(`✅ ریست شد\nUser: ${targetUserId}\ncount → 0`);
-});
-
-bot.command('credit_add', async (ctx) => {
-    if (!isAdmin(ctx.from.id)) return;
-    const parts = ctx.message.text.split(/\s+/);
-    const targetUserId = parts[1];
-    const n = Math.max(0, parseInt(parts[2], 10) || 0);
-    if (!targetUserId || !parts[2]) return ctx.reply("فرمت صحیح: /credit_add <userId> <n>");
-    const db = ensureUser(await getDB(), targetUserId);
-    const before = Number(db.users[targetUserId].count || 0);
-    db.users[targetUserId].count = Math.max(0, before - n);
-    await saveDB(db);
-    ctx.reply(`✅ شارژ انجام شد\nUser: ${targetUserId}\nUsed: ${before} → ${db.users[targetUserId].count}\n(+${n} credit added)`);
-});
 
 // --- Text Handler ---
 bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
     const userId = String(ctx.from.id);
-    
     if (!isAdmin(userId) && !allowedUserIds.has(userId)) return ctx.reply("❌ دسترسی غیرمجاز.");
     
     try {
         let db = ensureUser(await getDB(), userId);
-        
         if (!isAdmin(userId) && db.users[userId].count >= LIMIT) {
             return ctx.reply("❌ سهمیه تمام شده.");
         }
 
-                const response = await anthropic.messages.create({
-            model: "claude-sonnet-4-6", // دقیقاً مطابق عکسی که فرستادید
+        await ctx.sendChatAction('typing');
+
+        const response = await anthropic.messages.create({
+            model: "claude-sonnet-4-6", // مدل دقیقاً همان که بود
             max_tokens: 4000,
             system: SYSTEM_PROMPT,
             messages: [{ role: "user", content: ctx.message.text }],
         });
-
 
         if (!isAdmin(userId)) {
             db.users[userId].count += 1;
             await saveDB(db);
         }
 
-        await sendLongMessage(ctx, response.content[0].text);
-    } catch (e) { 
+        await safeReply(ctx, response.content[0].text);
+    } catch (e) {
         console.error(e);
-        ctx.reply("⚠️ خطایی در ارتباط با هوش مصنوعی رخ داد."); 
+        ctx.reply("⚠️ خطایی رخ داد. لطفا دوباره تلاش کنید.");
     }
 });
 
-// --- Webhook ---
+// --- Admin Commands ---
+bot.command('credit_status', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return;
+    const target = ctx.message.text.split(' ')[1];
+    const db = await getDB();
+    const used = db.users?.[target]?.count || 0;
+    ctx.reply(`📊 وضعیت ${target}: ${used}/${LIMIT}`);
+});
+
+bot.command('credit_reset', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return;
+    const target = ctx.message.text.split(' ')[1];
+    let db = await getDB();
+    if (db.users[target]) db.users[target].count = 0;
+    await saveDB(db);
+    ctx.reply(`✅ ریست شد.`);
+});
+
+bot.command('credit_add', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return;
+    const parts = ctx.message.text.split(' ');
+    const target = parts[1];
+    const n = parseInt(parts[2]);
+    let db = ensureUser(await getDB(), target);
+    db.users[target].count = Math.max(0, db.users[target].count - n);
+    await saveDB(db);
+    ctx.reply(`✅ شارژ شد.`);
+});
+
+// --- Server ---
 const PORT = process.env.PORT || 3000;
 const webhookPath = `/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 bot.telegram.setWebhook(`${process.env.URL}${webhookPath}`);
 app.use(bot.webhookCallback(webhookPath));
-
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+app.listen(PORT, '0.0.0.0', () => console.log(`Running on ${PORT}`));
