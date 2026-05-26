@@ -195,6 +195,21 @@ bot.command('credit_reset', async (ctx) => {
         ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
     }
 });
+bot.command('credit_use', async (ctx) => {if (!isAdmin(ctx.from.id)) return;
+  const parts = ctx.message.text.split(' ');
+  const target = parts[1];
+  const n = parseInt(parts[2]);
+  if (!target || isNaN(n)) return ctx.reply("فرمت: /credit_use [ID] [تعداد]");
+  try {
+    const { db } = ensureUser(await getDB(), target);
+    db.users[target].count = (db.users[target].count ?? 0) + n;
+    await saveDB(db);
+    ctx.reply(`✅ count کاربر ${target} به ${db.users[target].count} رسید.`);
+  } catch (e) {
+    console.error(e);
+    ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
+  }
+});
 
 // --- Text Handler ---
 bot.on('text', async (ctx) => {
