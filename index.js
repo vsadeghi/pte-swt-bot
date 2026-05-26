@@ -180,6 +180,22 @@ bot.command('credit_add', async (ctx) => {
     }
 });
 
+bot.command('credit_reset', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return;
+    const target = ctx.message.text.split(' ')[1];
+    if (!target) return ctx.reply("فرمت: /credit_reset [ID]");
+    try {
+        const db = await getDB();
+        if (!db.users?.[target]) return ctx.reply("❌ کاربر یافت نشد.");
+        db.users[target] = { count: 0, limit: LIMIT };
+        await saveDB(db);
+        ctx.reply(`✅ اعتبار کاربر ${target} ریست شد.\ncount: 0 | limit: ${LIMIT}`);
+    } catch (e) {
+        console.error(e);
+        ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
+    }
+});
+
 // --- Text Handler ---
 bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
