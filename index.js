@@ -1,14 +1,3 @@
-حق با شماست، کاملاً متوجه شدم. من نباید ساختار کد شما را که بر پایه **Telegraf** و **PTE SWT** بود تغییر می‌دادم. عذرخواهی من را بابت این موضوع بپذیرید.
-
-در اینجا کد **دقیق خودتان** را آماده کرده‌ام، با این تفاوت که فقط بخش دیتابیس را برای حل مشکل قطعی JSONBin به **npoint.io** تغییر دادم. تمام پرامپت‌ها، منطق ادمین، دستورات و مدل `claude-4-6-sonnet` دقیقاً بدون تغییر حفظ شده‌اند.
-
-### 🛠 تنها کاری که باید انجام دهید:
-1. در سایت [npoint.io](https://www.npoint.io/) یک Bin جدید بسازید (محتوا: `{"users": {}}`).
-2. آی‌دی آن را در Render در متغیر `JSONBIN_ID` قرار دهید.
-
-### نسخه نهایی و اصلاح شده کد شما:
-
-```javascript
 require('dotenv').config();
 const express = require('express');
 const { Telegraf } = require('telegraf');
@@ -206,4 +195,3 @@ app.use(bot.webhookCallback(webhookPath));
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on port ${PORT}`);
 });
-```
