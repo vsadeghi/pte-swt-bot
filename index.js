@@ -28,25 +28,32 @@ async function syncWhitelist() {
 setInterval(syncWhitelist, 300000);
 syncWhitelist();
 
-// --- DB Logic (npoint.io) ---
+// --- DB Logic (npoint.io) - Fixed for reliable saving ---
 async function getDB() {
     try {
         const response = await fetch(`https://api.npoint.io/${process.env.JSONBIN_ID}`, {
             headers: { "Cache-Control": "no-cache" }
         });
         if (!response.ok) return { users: {} };
-        return await response.json();
-    } catch (err) { return { users: {} }; }
+        const data = await response.json();
+        return data && data.users ? data : { users: {} };
+    } catch (err) { 
+        console.error("DB Fetch Error:", err);
+        return { users: {} }; 
+    }
 }
 
 async function saveDB(data) {
     try {
-        await fetch(`https://api.npoint.io/${process.env.JSONBIN_ID}`, {
+        const response = await fetch(`https://api.npoint.io/${process.env.JSONBIN_ID}`, {
             method: 'POST',
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(data)
         });
-    } catch (err) {}
+        if (!response.ok) console.error("DB Save Failed:", response.statusText);
+    } catch (err) { 
+        console.error("DB Save Error:", err);
+    }
 }
 
 function ensureUser(db, userId) {
@@ -55,7 +62,7 @@ function ensureUser(db, userId) {
     return db;
 }
 
-// --- Prompt Setup ---
+// --- Prompt Setup (UNTOUCHED) ---
 const SYSTEM_PROMPT = `You are an expert PTE tutor. Analyze the student's SWT (Summarize Written Text) with high pedagogical detail.
 IMPORTANT: Always start the message with "📋" to fix RTL direction. Use Markdown.
 ⚠️ IMPORTANT PTE RULE: If the word count is more than 75 words, the score is automatically ZERO.
@@ -145,9 +152,9 @@ bot.on('text', async (ctx) => {
         await ctx.sendChatAction('typing');
 
         const response = await anthropic.messages.create({
-            model: "claude-sonnet-4-6", // مدل دقیقاً همان که بود
+            model: "claude-sonnet-4-6", // MODEL UNTOUCHED
             max_tokens: 4000,
-            system: SYSTEM_PROMPT,
+            system: SYSTEM_PROMPT, // PROMPT UNTOUCHED
             messages: [{ role: "user", content: ctx.message.text }],
         });
 
@@ -163,10 +170,11 @@ bot.on('text', async (ctx) => {
     }
 });
 
-// --- Admin Commands ---
+// --- Admin Commands (Fixed Responses) ---
 bot.command('credit_status', async (ctx) => {
     if (!isAdmin(ctx.from.id)) return;
     const target = ctx.message.text.split(' ')[1];
+    if (!target) return ctx.reply("فرمت: /credit_status [ID]");
     const db = await getDB();
     const used = db.users?.[target]?.count || 0;
     ctx.reply(`📊 وضعیت ${target}: ${used}/${LIMIT}`);
@@ -175,10 +183,12 @@ bot.command('credit_status', async (ctx) => {
 bot.command('credit_reset', async (ctx) => {
     if (!isAdmin(ctx.from.id)) return;
     const target = ctx.message.text.split(' ')[1];
+    if (!target) return ctx.reply("فرمت: /credit_reset [ID]");
     let db = await getDB();
-    if (db.users[target]) db.users[target].count = 0;
+    if (!db.users) db.users = {};
+    db.users[target] = { count: 0 };
     await saveDB(db);
-    ctx.reply(`✅ ریست شد.`);
+    ctx.reply(`✅ سهمیه کاربر ${target} صفر شد.`);
 });
 
 bot.command('credit_add', async (ctx) => {
@@ -186,10 +196,12 @@ bot.command('credit_add', async (ctx) => {
     const parts = ctx.message.text.split(' ');
     const target = parts[1];
     const n = parseInt(parts[2]);
+    if (!target || isNaN(n)) return ctx.reply("فرمت: /credit_add [ID] [تعداد]");
+    
     let db = ensureUser(await getDB(), target);
     db.users[target].count = Math.max(0, db.users[target].count - n);
     await saveDB(db);
-    ctx.reply(`✅ شارژ شد.`);
+    ctx.reply(`✅ تعداد ${n} اعتبار به کاربر ${target} اضافه شد.`);
 });
 
 // --- Server ---
