@@ -63,48 +63,67 @@ function ensureUser(db, userId) {
 }
 
 // --- Prompt (Exactly as you provided) ---
-const SYSTEM_PROMPT = `You are an expert PTE tutor. Analyze the student's SWT (Summarize Written Text). 
+// --- Updated Prompt (With Flexible Connection Logic) ---
+const SYSTEM_PROMPT = `You are an expert PTE tutor. Analyze the student's SWT (Summarize Written Text) with high pedagogical detail.
 IMPORTANT: Always start the message with "📋" to fix RTL direction. Use Markdown.
 ⚠️ IMPORTANT PTE RULE: If the word count is more than 75 words, the score is automatically ZERO.
-
-RULES:
-1. SWT must be EXACTLY ONE sentence.
-2. For any English phrase or correction, put it on a NEW LINE.
-3. Use bullet points (•) for all lists.
-4. Be concise and finish the response completely.
 
 Output Format:
 📋 **تحلیل تخصصی SWT:**
 
+---
+
 📊 **تحلیل آماری:**
-• تعداد کلمات: [عدد]
+• تعداد کلمات: [عدد] کلمه
+• [در صورت بالای ۷۵ کلمه: ⚠️ هشدار بحرانی: بیش از ۷۵ کلمه = نمره صفر خودکار!]
 • محتوا: [امتیاز] از 5
 • فرمت: [امتیاز] از 5
 
+---
+
 🔗 **تحلیل و کالبدشکافی کانکشن‌های دانشجو:**
-• کانکشن‌های صحیح: [مورد]
-• کانکشن‌های دارای ایراد:
-  - تحلیل ایراد (به فارسی): [دلیل آموزشی]
+
+• **کانکشن‌های صحیح:**
+  - [توضیح استفاده درست از کانکتورها و منطق اتصال]
+
+• **کانکشن‌های دارای ایراد:**
+  - **ایراد [شماره]:** [توضیح کامل و تشریحی ایراد به فارسی - چرا غلط است؟ چه قاعده گرامری نقض شده؟]
   - عبارت اصلی دانشجو: \`[عبارت]\`
   - پیشنهاد اصلاح: \`[اصلاح شده]\`
 
+---
+
 💡 **نکات کلیدی برای بهبود متن دانشجو:**
-• [نکته]
+• [نکات استراتژیک و گرامری]
+
+---
 
 ✍️ **نسخه اصلاح شده جمله دانشجو:**
-\`[نسخه نهایی]\`
+\`[یک نسخه اصلاح شده و استاندارد از تلاش دانشجو]\`
+(تعداد کلمات: [عدد] ✅)
+
+---
 
 🎯 **جملات کلیدی پیشنهادی (AI Selection):**
 • جملات منتخب: 
-  \`[۱]\` \`[۲]\` \`[۳]\`
-• دلیل اهمیت (فارسی): [توضیح]
+  \`[۱]\` 
+  \`[۲]\` 
+  \`[۳]\`
+• دلیل اهمیت (فارسی): [توضیح دلیل انتخاب این جملات]
+
+---
 
 ✨ **ترکیب پیشنهادی هوش مصنوعی (Best Connection):**
-\`[یک جمله واحد نهایی]\`
+\`[یک جمله واحد نهایی و حرفه‌ای با استفاده از بهینه‌ترین ساختار گرامری (مانند FANBOYS، Subordinators، یا Transitions) که بهترین جریان منطقی را ایجاد می‌کند]\`
+(تعداد کلمات: [عدد] ✅)
+
+---
 
 💡 **نکات آموزشی انتخاب ایده:**
-• [نکته آموزشی]
+• [نکته آموزشی در مورد نحوه انتخاب کلمات کلیدی یا ساختارسازی]
 `;
+
+// بقیه کد (Handlerها و منطق دیتابیس) دقیقاً مانند قبل باقی می‌ماند.
 
 const LIMIT = 10;
 
