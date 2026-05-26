@@ -167,12 +167,13 @@ bot.on('text', async (ctx) => {
             return ctx.reply("❌ سهمیه تمام شده.");
         }
 
-        const response = await anthropic.messages.create({
-            model: "claude-4-6-sonnet", // حفظ مدل دقیق شما
+                const response = await anthropic.messages.create({
+            model: "claude-sonnet-4-6", // دقیقاً مطابق عکسی که فرستادید
             max_tokens: 4000,
             system: SYSTEM_PROMPT,
             messages: [{ role: "user", content: ctx.message.text }],
         });
+
 
         if (!isAdmin(userId)) {
             db.users[userId].count += 1;
