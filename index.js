@@ -137,9 +137,36 @@ async function safeReply(ctx, text) {
     }
 }
 
+// --- Commands ---
+bot.start((ctx) => ctx.reply('خوش آمدید! متن SWT خود را بفرستید.'));
+
+bot.command('credit_status', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return;
+    const target = ctx.message.text.split(' ')[1];
+    if (!target) return ctx.reply("فرمت: /credit_status [ID]");
+    const db = await getDB();
+    const used = db.users?.[target]?.count || 0;
+    ctx.reply(`📊 وضعیت ${target}: ${used}/${LIMIT}`);
+});
+
+bot.command('credit_add', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return;
+    const parts = ctx.message.text.split(' ');
+    const target = parts[1];
+    const n = parseInt(parts[2]);
+    if (!target || isNaN(n)) return ctx.reply("فرمت: /credit_add [ID] [تعداد]");
+    
+    let db = ensureUser(await getDB(), target);
+    db.users[target].count = Math.max(0, db.users[target].count - n);
+    await saveDB(db);
+    ctx.reply(`✅ تعداد ${n} اعتبار به کاربر ${target} اضافه شد.`);
+});
+
 // --- Text Handler ---
 bot.on('text', async (ctx) => {
+    // جلوگیری از تداخل با دستورات
     if (ctx.message.text.startsWith('/')) return;
+
     const userId = String(ctx.from.id);
     if (!isAdmin(userId) && !allowedUserIds.has(userId)) return ctx.reply("❌ دسترسی غیرمجاز.");
     
@@ -166,48 +193,8 @@ bot.on('text', async (ctx) => {
         await safeReply(ctx, response.content[0].text);
     } catch (e) {
         console.error(e);
-        ctx.reply("⚠️ خطایی رخ داد. لطفا دوباره تلاش کنید.");
+        ctx.reply("⚠️ خطایی رخ داد.");
     }
-});
-
-// --- Admin Commands ---
-bot.command('credit_status', async (ctx) => {
-    console.log("DEBUG: Received /credit_status command from", ctx.from.id);
-    if (!isAdmin(ctx.from.id)) {
-        console.log("DEBUG: User", ctx.from.id, "is NOT an admin.");
-        return;
-    }
-    const target = ctx.message.text.split(' ')[1];
-    if (!target) return ctx.reply("فرمت: /credit_status [ID]");
-    const db = await getDB();
-    const used = db.users?.[target]?.count || 0;
-    ctx.reply(`📊 وضعیت ${target}: ${used}/${LIMIT}`);
-});
-
-bot.command('credit_reset', async (ctx) => {
-    console.log("DEBUG: Received /credit_reset command");
-    if (!isAdmin(ctx.from.id)) return;
-    const target = ctx.message.text.split(' ')[1];
-    if (!target) return ctx.reply("فرمت: /credit_reset [ID]");
-    let db = await getDB();
-    if (!db.users) db.users = {};
-    db.users[target] = { count: 0 };
-    await saveDB(db);
-    ctx.reply(`✅ سهمیه کاربر ${target} صفر شد.`);
-});
-
-bot.command('credit_add', async (ctx) => {
-    console.log("DEBUG: Received /credit_add command");
-    if (!isAdmin(ctx.from.id)) return;
-    const parts = ctx.message.text.split(' ');
-    const target = parts[1];
-    const n = parseInt(parts[2]);
-    if (!target || isNaN(n)) return ctx.reply("فرمت: /credit_add [ID] [تعداد]");
-    
-    let db = ensureUser(await getDB(), target);
-    db.users[target].count = Math.max(0, db.users[target].count - n);
-    await saveDB(db);
-    ctx.reply(`✅ تعداد ${n} اعتبار به کاربر ${target} اضافه شد.`);
 });
 
 // --- Server ---
