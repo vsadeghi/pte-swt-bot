@@ -28,7 +28,7 @@ async function syncWhitelist() {
 setInterval(syncWhitelist, 300000);
 syncWhitelist();
 
-// --- DB Logic (npoint.io) - Fixed for reliable saving ---
+// --- DB Logic (npoint.io) ---
 async function getDB() {
     try {
         const response = await fetch(`https://api.npoint.io/${process.env.JSONBIN_ID}`, {
@@ -152,9 +152,9 @@ bot.on('text', async (ctx) => {
         await ctx.sendChatAction('typing');
 
         const response = await anthropic.messages.create({
-            model: "claude-sonnet-4-6", // MODEL UNTOUCHED
+            model: "claude-sonnet-4-6",
             max_tokens: 4000,
-            system: SYSTEM_PROMPT, // PROMPT UNTOUCHED
+            system: SYSTEM_PROMPT,
             messages: [{ role: "user", content: ctx.message.text }],
         });
 
@@ -170,9 +170,13 @@ bot.on('text', async (ctx) => {
     }
 });
 
-// --- Admin Commands (Fixed Responses) ---
+// --- Admin Commands ---
 bot.command('credit_status', async (ctx) => {
-    if (!isAdmin(ctx.from.id)) return;
+    console.log("DEBUG: Received /credit_status command from", ctx.from.id);
+    if (!isAdmin(ctx.from.id)) {
+        console.log("DEBUG: User", ctx.from.id, "is NOT an admin.");
+        return;
+    }
     const target = ctx.message.text.split(' ')[1];
     if (!target) return ctx.reply("فرمت: /credit_status [ID]");
     const db = await getDB();
@@ -181,6 +185,7 @@ bot.command('credit_status', async (ctx) => {
 });
 
 bot.command('credit_reset', async (ctx) => {
+    console.log("DEBUG: Received /credit_reset command");
     if (!isAdmin(ctx.from.id)) return;
     const target = ctx.message.text.split(' ')[1];
     if (!target) return ctx.reply("فرمت: /credit_reset [ID]");
@@ -192,6 +197,7 @@ bot.command('credit_reset', async (ctx) => {
 });
 
 bot.command('credit_add', async (ctx) => {
+    console.log("DEBUG: Received /credit_add command");
     if (!isAdmin(ctx.from.id)) return;
     const parts = ctx.message.text.split(' ');
     const target = parts[1];
