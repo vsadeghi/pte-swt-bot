@@ -28,30 +28,34 @@ async function syncWhitelist() {
 setInterval(syncWhitelist, 300000);
 syncWhitelist();
 
-// --- DB Logic (npoint.io) ---
+// --- DB Logic (JSONBin.io) ---
+const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${process.env.JSONBIN_ID}`;
+const JSONBIN_HEADERS = {
+    "Content-Type": "application/json",
+    "X-Master-Key": process.env.JSONBIN_API_KEY
+};
+
 async function getDB() {
     try {
-        const response = await fetch(`https://api.npoint.io/${process.env.JSONBIN_ID}`, {
-            headers: { "Cache-Control": "no-cache" }
-        });
+        const response = await fetch(JSONBIN_URL, { headers: JSONBIN_HEADERS });
         if (!response.ok) return { users: {} };
         const data = await response.json();
-        return data && data.users ? data : { users: {} };
-    } catch (err) { 
+        return data.record?.users ? data.record : { users: {} };
+    } catch (err) {
         console.error("DB Fetch Error:", err);
-        return { users: {} }; 
+        return { users: {} };
     }
 }
 
 async function saveDB(data) {
     try {
-        const response = await fetch(`https://api.npoint.io/${process.env.JSONBIN_ID}`, {
-            method: 'POST',
-            headers: { "Content-Type": "application/json" },
+        const response = await fetch(JSONBIN_URL, {
+            method: 'PUT',
+            headers: JSONBIN_HEADERS,
             body: JSON.stringify(data)
         });
         if (!response.ok) console.error("DB Save Failed:", response.statusText);
-    } catch (err) { 
+    } catch (err) {
         console.error("DB Save Error:", err);
     }
 }
@@ -164,7 +168,6 @@ bot.command('credit_add', async (ctx) => {
 
 // --- Text Handler ---
 bot.on('text', async (ctx) => {
-    // جلوگیری از تداخل با دستورات
     if (ctx.message.text.startsWith('/')) return;
 
     const userId = String(ctx.from.id);
