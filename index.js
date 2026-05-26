@@ -19,11 +19,16 @@ async function syncWhitelist() {
     try {
         const response = await fetch(process.env.GOOGLE_SHEET_CSV_URL);
         const data = await response.text();
-        const rows = data.split('\n');
-        allowedUserIds = new Set(rows.map(row => row.trim()).filter(id => id !== ""));
+        // اصلاح برای پاکسازی بهتر آی‌دی‌ها و حذف هدر احتمالی
+        const rows = data.split('\n')
+            .map(row => row.replace('\r', '').trim())
+            .filter(row => row !== "" && !isNaN(row)); // فقط ردیف‌هایی که عدد هستند (آی‌دی تلگرام)
+        allowedUserIds = new Set(rows);
+        console.log("Whitelist updated. Count:", allowedUserIds.size);
     } catch (err) { console.error("Whitelist sync failed:", err); }
 }
-setInterval(syncWhitelist, 3600000);
+// تغییر زمان سینک به ۵ دقیقه برای شناسایی سریع‌تر کاربران جدید
+setInterval(syncWhitelist, 300000);
 syncWhitelist();
 
 // --- DB Logic ---
@@ -47,20 +52,19 @@ function ensureUser(db, userId) {
     return db;
 }
 
-// --- Prompt ---
+// --- Prompt (Updated: Student summary removed to save tokens) ---
 const SYSTEM_PROMPT = `You are an expert PTE tutor. Analyze the student's SWT (Summarize Written Text). 
 IMPORTANT: Always start the message with "📋" to fix RTL direction. Use Markdown.
-
 ⚠️ IMPORTANT PTE RULE: If the word count is more than 75 words, the score is automatically ZERO.
 
 RULES:
 1. SWT must be EXACTLY ONE sentence.
 2. For any English phrase or correction, put it on a NEW LINE.
 3. Use bullet points (•) for all lists.
+4. Be concise and finish the response completely.
 
 Output Format:
-📋 **خلاصه دانشجو:**
-[متن اصلی دانشجو]
+📋 **تحلیل تخصصی SWT:**
 
 📊 **تحلیل آماری:**
 • تعداد کلمات: [عدد]
@@ -68,45 +72,35 @@ Output Format:
 • فرمت: [امتیاز] از 5
 
 🔗 **تحلیل و کالبدشکافی کانکشن‌های دانشجو:**
-در این بخش، ابتدا جمله اصلی دانشجو را بررسی کن و ایراداتش را دقیق توضیح بده.
 • کانکشن‌های صحیح: [مورد]
 • کانکشن‌های دارای ایراد:
-  - تحلیل ایراد (به فارسی): [دلیل آموزشی مفصل که چرا این کانکشن یا ساختار در جمله اصلی اشتباه یا ضعیف است]
-  - عبارت اصلی دانشجو: \`[عبارت انگلیسی]\`
-  - پیشنهاد اصلاح: \`[عبارت انگلیسی اصلاح شده]\`
+  - تحلیل ایراد (به فارسی): [دلیل آموزشی]
+  - عبارت اصلی دانشجو: \`[عبارت]\`
+  - پیشنهاد اصلاح: \`[اصلاح شده]\`
 
 💡 **نکات کلیدی برای بهبود متن دانشجو:**
-• [نکته ۱]
-• [نکته ۲]
+• [نکته]
 
 ✍️ **نسخه اصلاح شده جمله دانشجو:**
-در اینجا با توجه به تحلیل‌های بالا، جمله دانشجو را به شکلی اصلاح کن که ایراداتش رفع شده و به یک جمله کامل و بی‌نقص تبدیل شود.
-\`[نسخه نهایی و اصلاح شده دانشجو]\`
+\`[نسخه نهایی]\`
 
 🎯 **جملات کلیدی پیشنهادی (AI Selection):**
-در این بخش ۳ جمله بسیار مهم از متن اصلی را انتخاب کن:
 • جملات منتخب: 
-  \`[جمله ۱]\`
-  \`[جمله ۲]\`
-  \`[جمله ۳]\`
-• دلیل اهمیت این جملات (فارسی): [توضیح کوتاه]
+  \`[۱]\` \`[۲]\` \`[۳]\`
+• دلیل اهمیت (فارسی): [توضیح]
 
 ✨ **ترکیب پیشنهادی هوش مصنوعی (Best Connection):**
-در اینجا جملات منتخب بالا را بدون پارافریز، فقط با کانکشن‌های استاندارد به هم وصل کن.
 \`[یک جمله واحد نهایی]\`
 
-💡 **نکات آموزشی درباره نحوه انتخاب ایده‌ها:**
-• [یک نکته آموزشی درباره استراتژی انتخاب جملات کلیدی و ترکیب آن‌ها در SWT]
+💡 **نکات آموزشی انتخاب ایده:**
+• [نکته آموزشی]
 `;
-
-
-
 
 const LIMIT = 10;
 
 // --- Helper for Long Messages ---
 async function sendLongMessage(ctx, text) {
-    const MAX_LENGTH = 4000;
+    const MAX_LENGTH = 3800; // کاهش جزئی برای امنیت بیشتر در ارسال
     if (text.length <= MAX_LENGTH) {
         return ctx.reply(text, { parse_mode: 'Markdown' });
     }
@@ -153,20 +147,36 @@ bot.command('credit_add', async (ctx) => {
 bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
     const userId = String(ctx.from.id);
+    
+    // ۱. بررسی دسترسی (ادمین همیشه دسترسی دارد)
     if (!isAdmin(userId) && !allowedUserIds.has(userId)) return ctx.reply("❌ دسترسی غیرمجاز.");
+    
     try {
         let db = ensureUser(await getDB(), userId);
-        if (db.users[userId].count >= LIMIT) return ctx.reply("❌ سهمیه تمام شده.");
+        
+        // ۲. بررسی سهمیه (فقط برای کاربران عادی)
+        if (!isAdmin(userId) && db.users[userId].count >= LIMIT) {
+            return ctx.reply("❌ سهمیه تمام شده.");
+        }
+
         const response = await anthropic.messages.create({
-            model: "claude-sonnet-4-6",
+            model: "claude-3-5-sonnet-20240620", // اصلاح نام مدل به نسخه دقیق
             max_tokens: 2000,
             system: SYSTEM_PROMPT,
             messages: [{ role: "user", content: ctx.message.text }],
         });
-        db.users[userId].count += 1;
-        await saveDB(db);
+
+        // ۳. کسر سهمیه (فقط اگر کاربر ادمین نباشد)
+        if (!isAdmin(userId)) {
+            db.users[userId].count += 1;
+            await saveDB(db);
+        }
+
         await sendLongMessage(ctx, response.content[0].text);
-    } catch (e) { ctx.reply("⚠️ خطایی رخ داد."); }
+    } catch (e) { 
+        console.error(e);
+        ctx.reply("⚠️ خطایی در ارتباط با هوش مصنوعی رخ داد."); 
+    }
 });
 
 // --- Webhook ---
