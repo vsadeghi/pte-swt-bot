@@ -205,24 +205,23 @@ bot.command('remove_user', async (ctx) => {
 // دستور مشاهده وضعیت اعتبار
 bot.command('credit_status', async (ctx) => {
     if (!isAdmin(ctx.from.id)) return ctx.reply("❌ فقط ادمین‌ها دسترسی دارند.");
-    
+
     const target = ctx.message.text.split(' ')[1];
     if (!target) return ctx.reply("فرمت: /credit_status [ID]");
-    
+
     try {
         const db = await getDB();
         const user = db.users?.[target];
-        
-        if (!user) {
-            return ctx.reply(`❌ کاربر ${target} در دیتابیس یافت نشد.`);
-        }
-        
-        const used = user.count || 0;
-        const limit = user.limit ?? DEFAULT_LIMIT;
+
+        // اگه کاربر هنوز پیام نفرستاده، مقادیر پیش‌فرض نشون بده
+        const used = user?.count ?? 0;
+        const limit = user?.limit ?? DEFAULT_LIMIT;
         const remaining = limit - used;
-        
+        const status = user ? "✅ فعال" : "⏳ هنوز پیام نفرستاده";
+
         ctx.reply(
             `📊 وضعیت کاربر ${target}:\n\n` +
+            `• وضعیت: ${status}\n` +
             `• استفاده شده: ${used}\n` +
             `• سقف: ${limit}\n` +
             `• باقی‌مانده: ${remaining}`
@@ -232,6 +231,7 @@ bot.command('credit_status', async (ctx) => {
         ctx.reply("⚠️ خطا در دریافت اطلاعات.");
     }
 });
+
 
 // دستور افزایش سقف اعتبار
 bot.command('credit_add', async (ctx) => {
