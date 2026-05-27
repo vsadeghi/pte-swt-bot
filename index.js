@@ -10,23 +10,9 @@ app.use(express.json());
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
-// --- Admin & Whitelist ---
+// --- Admin List ---
 const ADMIN_IDS = new Set(["97660313", "108265666", "6190801722"]);
 const isAdmin = (id) => ADMIN_IDS.has(String(id));
-let allowedUserIds = new Set();
-
-async function syncWhitelist() {
-    try {
-        const response = await fetch(process.env.GOOGLE_SHEET_CSV_URL, { headers: { "Cache-Control": "no-cache" } });
-        const data = await response.text();
-        const rows = data.split('\n')
-            .map(row => row.replace('\r', '').trim())
-            .filter(row => row !== "" && !isNaN(row));
-        allowedUserIds = new Set(rows);
-    } catch (err) { console.error("Whitelist sync failed:", err); }
-}
-setInterval(syncWhitelist, 300000);
-syncWhitelist();
 
 // --- DB Logic (JSONBin.io) ---
 const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${process.env.JSONBIN_ID}`;
@@ -36,38 +22,60 @@ const JSONBIN_HEADERS = {
 };
 
 async function getDB() {
-    const response = await fetch(JSONBIN_URL, { headers: JSONBIN_HEADERS });
-    if (!response.ok) throw new Error(`DB Fetch Failed: ${response.statusText}`);
-    const data = await response.json();
-    return data.record?.users ? data.record : { users: {} };
+    try {
+        const response = await fetch(JSONBIN_URL, { headers: JSONBIN_HEADERS });
+        if (!response.ok) throw new Error(`DB Fetch Failed: ${response.statusText}`);
+        const data = await response.json();
+        
+        // اطمینان از ساختار صحیح
+        if (!data.record) return { allowedUserIds: [], users: {} };
+        if (!data.record.allowedUserIds) data.record.allowedUserIds = [];
+        if (!data.record.users) data.record.users = {};
+        
+        console.log('✅ DB loaded:', JSON.stringify(data.record, null, 2));
+        return data.record;
+    } catch (err) {
+        console.error('❌ DB Load Error:', err);
+        return { allowedUserIds: [], users: {} };
+    }
 }
 
 async function saveDB(data) {
     try {
+        console.log('💾 Saving DB:', JSON.stringify(data, null, 2));
         const response = await fetch(JSONBIN_URL, {
             method: 'PUT',
             headers: JSONBIN_HEADERS,
             body: JSON.stringify(data)
         });
-        if (!response.ok) console.error("DB Save Failed:", response.statusText);
+        if (!response.ok) {
+            console.error("❌ DB Save Failed:", response.statusText);
+            return false;
+        }
+        console.log('✅ DB saved successfully');
+        return true;
     } catch (err) {
-        console.error("DB Save Error:", err);
+        console.error("❌ DB Save Error:", err);
+        return false;
     }
 }
 
-const LIMIT = 10;
+const DEFAULT_LIMIT = 10;
 
-// returns { db, migrated }
 function ensureUser(db, userId) {
     if (!db.users) db.users = {};
     let migrated = false;
+    
     if (!db.users[userId]) {
-        db.users[userId] = { count: 0, limit: LIMIT };
+        db.users[userId] = { count: 0, limit: DEFAULT_LIMIT };
         migrated = true;
+        console.log(`🆕 New user created: ${userId}`);
     } else if (db.users[userId].limit === undefined) {
-        db.users[userId].limit = LIMIT;
+        db.users[userId].limit = DEFAULT_LIMIT;
         migrated = true;
+        console.log(`🔧 User migrated: ${userId}`);
     }
+    
     return { db, migrated };
 }
 
@@ -147,68 +155,174 @@ async function safeReply(ctx, text) {
 // --- Commands ---
 bot.start((ctx) => ctx.reply('خوش آمدید! متن SWT خود را بفرستید.'));
 
-bot.command('credit_status', async (ctx) => {
-    if (!isAdmin(ctx.from.id)) return;
+// دستور اضافه کردن کاربر به whitelist
+bot.command('add_user', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return ctx.reply("❌ فقط ادمین‌ها دسترسی دارند.");
+    
     const target = ctx.message.text.split(' ')[1];
-    if (!target) return ctx.reply("فرمت: /credit_status [ID]");
+    if (!target) return ctx.reply("فرمت: /add_user [ID]");
+    
     try {
         const db = await getDB();
-        const used = db.users?.[target]?.count || 0;
-        const limit = db.users?.[target]?.limit ?? LIMIT;
-        ctx.reply(`📊 وضعیت ${target}:\nاستفاده شده: ${used}\nسقف: ${limit}\nباقی‌مانده: ${limit - used}`);
+        
+        if (!db.allowedUserIds.includes(target)) {
+            db.allowedUserIds.push(target);
+            await saveDB(db);
+            ctx.reply(`✅ کاربر ${target} به لیست مجاز اضافه شد.`);
+        } else {
+            ctx.reply(`⚠️ کاربر ${target} قبلاً در لیست مجاز است.`);
+        }
+    } catch (e) {
+        console.error(e);
+        ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
+    }
+});
+
+// دستور حذف کاربر از whitelist
+bot.command('remove_user', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return ctx.reply("❌ فقط ادمین‌ها دسترسی دارند.");
+    
+    const target = ctx.message.text.split(' ')[1];
+    if (!target) return ctx.reply("فرمت: /remove_user [ID]");
+    
+    try {
+        const db = await getDB();
+        
+        const index = db.allowedUserIds.indexOf(target);
+        if (index > -1) {
+            db.allowedUserIds.splice(index, 1);
+            await saveDB(db);
+            ctx.reply(`✅ کاربر ${target} از لیست مجاز حذف شد.`);
+        } else {
+            ctx.reply(`⚠️ کاربر ${target} در لیست مجاز نیست.`);
+        }
+    } catch (e) {
+        console.error(e);
+        ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
+    }
+});
+
+// دستور مشاهده وضعیت اعتبار
+bot.command('credit_status', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return ctx.reply("❌ فقط ادمین‌ها دسترسی دارند.");
+    
+    const target = ctx.message.text.split(' ')[1];
+    if (!target) return ctx.reply("فرمت: /credit_status [ID]");
+    
+    try {
+        const db = await getDB();
+        const user = db.users?.[target];
+        
+        if (!user) {
+            return ctx.reply(`❌ کاربر ${target} در دیتابیس یافت نشد.`);
+        }
+        
+        const used = user.count || 0;
+        const limit = user.limit ?? DEFAULT_LIMIT;
+        const remaining = limit - used;
+        
+        ctx.reply(
+            `📊 وضعیت کاربر ${target}:\n\n` +
+            `• استفاده شده: ${used}\n` +
+            `• سقف: ${limit}\n` +
+            `• باقی‌مانده: ${remaining}`
+        );
     } catch (e) {
         console.error(e);
         ctx.reply("⚠️ خطا در دریافت اطلاعات.");
     }
 });
 
+// دستور افزایش سقف اعتبار
 bot.command('credit_add', async (ctx) => {
-    if (!isAdmin(ctx.from.id)) return;
+    if (!isAdmin(ctx.from.id)) return ctx.reply("❌ فقط ادمین‌ها دسترسی دارند.");
+    
     const parts = ctx.message.text.split(' ');
     const target = parts[1];
     const n = parseInt(parts[2]);
+    
     if (!target || isNaN(n)) return ctx.reply("فرمت: /credit_add [ID] [تعداد]");
-
+    
     try {
-        const { db } = ensureUser(await getDB(), target);
-        db.users[target].limit = (db.users[target].limit ?? LIMIT) + n;
-        await saveDB(db);
-        ctx.reply(`✅ ${n} اعتبار به کاربر ${target} اضافه شد.\nسقف جدید: ${db.users[target].limit}`);
+        let db = await getDB();
+        const result = ensureUser(db, target);
+        db = result.db;
+        
+        db.users[target].limit = (db.users[target].limit ?? DEFAULT_LIMIT) + n;
+        
+        const saved = await saveDB(db);
+        if (saved) {
+            ctx.reply(
+                `✅ ${n} اعتبار به کاربر ${target} اضافه شد.\n` +
+                `سقف جدید: ${db.users[target].limit}`
+            );
+        } else {
+            ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
+        }
     } catch (e) {
         console.error(e);
         ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
     }
 });
 
+// دستور افزایش مصرف (count)
+bot.command('credit_use', async (ctx) => {
+    if (!isAdmin(ctx.from.id)) return ctx.reply("❌ فقط ادمین‌ها دسترسی دارند.");
+    
+    const parts = ctx.message.text.split(' ');
+    const target = parts[1];
+    const n = parseInt(parts[2]);
+    
+    if (!target || isNaN(n)) return ctx.reply("فرمت: /credit_use [ID] [تعداد]");
+    
+    try {
+        let db = await getDB();
+        const result = ensureUser(db, target);
+        db = result.db;
+        
+        db.users[target].count = (db.users[target].count ?? 0) + n;
+        
+        const saved = await saveDB(db);
+        if (saved) {
+            ctx.reply(`✅ count کاربر ${target} به ${db.users[target].count} رسید.`);
+        } else {
+            ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
+        }
+    } catch (e) {
+        console.error(e);
+        ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
+    }
+});
+
+// دستور ریست کردن اعتبار
 bot.command('credit_reset', async (ctx) => {
-    if (!isAdmin(ctx.from.id)) return;
+    if (!isAdmin(ctx.from.id)) return ctx.reply("❌ فقط ادمین‌ها دسترسی دارند.");
+    
     const target = ctx.message.text.split(' ')[1];
     if (!target) return ctx.reply("فرمت: /credit_reset [ID]");
+    
     try {
         const db = await getDB();
-        if (!db.users?.[target]) return ctx.reply("❌ کاربر یافت نشد.");
-        db.users[target] = { count: 0, limit: LIMIT };
-        await saveDB(db);
-        ctx.reply(`✅ اعتبار کاربر ${target} ریست شد.\ncount: 0 | limit: ${LIMIT}`);
+        
+        if (!db.users?.[target]) {
+            return ctx.reply(`❌ کاربر ${target} در دیتابیس یافت نشد.`);
+        }
+        
+        db.users[target] = { count: 0, limit: DEFAULT_LIMIT };
+        
+        const saved = await saveDB(db);
+        if (saved) {
+            ctx.reply(
+                `✅ اعتبار کاربر ${target} ریست شد.\n` +
+                `count: 0 | limit: ${DEFAULT_LIMIT}`
+            );
+        } else {
+            ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
+        }
     } catch (e) {
         console.error(e);
         ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
     }
-});
-bot.command('credit_use', async (ctx) => {if (!isAdmin(ctx.from.id)) return;
-  const parts = ctx.message.text.split(' ');
-  const target = parts[1];
-  const n = parseInt(parts[2]);
-  if (!target || isNaN(n)) return ctx.reply("فرمت: /credit_use [ID] [تعداد]");
-  try {
-    const { db } = ensureUser(await getDB(), target);
-    db.users[target].count = (db.users[target].count ?? 0) + n;
-    await saveDB(db);
-    ctx.reply(`✅ count کاربر ${target} به ${db.users[target].count} رسید.`);
-  } catch (e) {
-    console.error(e);
-    ctx.reply("⚠️ خطا در ذخیره اطلاعات.");
-  }
 });
 
 // --- Text Handler ---
@@ -216,42 +330,92 @@ bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
 
     const userId = String(ctx.from.id);
-    if (!isAdmin(userId) && !allowedUserIds.has(userId)) return ctx.reply("❌ دسترسی غیرمجاز.");
-
+    
     try {
-        const { db, migrated } = ensureUser(await getDB(), userId);
-        if (migrated) await saveDB(db); // ذخیره migration فوری
-
-        const userLimit = db.users[userId].limit ?? LIMIT;
-
-        if (!isAdmin(userId) && db.users[userId].count >= userLimit) {
-            return ctx.reply("❌ سهمیه تمام شده.");
+        console.log(`📨 Message from user: ${userId}`);
+        
+        // بارگذاری دیتابیس
+        let db = await getDB();
+        
+        // بررسی دسترسی
+        const hasAccess = isAdmin(userId) || db.allowedUserIds.includes(userId);
+        if (!hasAccess) {
+            console.log(`❌ Unauthorized access attempt: ${userId}`);
+            return ctx.reply("❌ دسترسی غیرمجاز. لطفاً با ادمین تماس بگیرید.");
         }
-
+        
+        // اطمینان از وجود کاربر در دیتابیس
+        const result = ensureUser(db, userId);
+        db = result.db;
+        
+        // ذخیره فوری اگر کاربر جدید است
+        if (result.migrated) {
+            console.log(`💾 Saving new user: ${userId}`);
+            await saveDB(db);
+        }
+        
+        const userLimit = db.users[userId].limit ?? DEFAULT_LIMIT;
+        const userCount = db.users[userId].count ?? 0;
+        
+        console.log(`📊 User ${userId} - Count: ${userCount}, Limit: ${userLimit}`);
+        
+        // بررسی سهمیه (فقط برای غیر ادمین‌ها)
+        if (!isAdmin(userId) && userCount >= userLimit) {
+            console.log(`⛔ User ${userId} quota exceeded`);
+            return ctx.reply(
+                `❌ سهمیه شما تمام شده است.\n\n` +
+                `استفاده شده: ${userCount}/${userLimit}\n` +
+                `برای افزایش سهمیه با ادمین تماس بگیرید.`
+            );
+        }
+        
+        // ارسال typing action
         await ctx.sendChatAction('typing');
-
+        
+        console.log(`🤖 Calling Claude API for user ${userId}...`);
+        
+        // فراخوانی Claude API
         const response = await anthropic.messages.create({
             model: "claude-sonnet-4-6",
             max_tokens: 4000,
             system: SYSTEM_PROMPT,
             messages: [{ role: "user", content: ctx.message.text }],
         });
-
+        
+        console.log(`✅ Claude API response received for user ${userId}`);
+        
+        // افزایش count فقط برای غیر ادمین‌ها
         if (!isAdmin(userId)) {
-            db.users[userId].count += 1;
-            await saveDB(db);
+            console.log(`📈 Incrementing count for user ${userId}: ${userCount} -> ${userCount + 1}`);
+            db.users[userId].count = userCount + 1;
+            
+            const saved = await saveDB(db);
+            if (saved) {
+                console.log(`✅ Count saved successfully for user ${userId}`);
+            } else {
+                console.error(`❌ Failed to save count for user ${userId}`);
+            }
+        } else {
+            console.log(`👑 Admin ${userId} - count not incremented`);
         }
-
+        
+        // ارسال پاسخ
         await safeReply(ctx, response.content[0].text);
+        
     } catch (e) {
-        console.error(e);
-        ctx.reply("⚠️ خطایی رخ داد.");
+        console.error('❌ Error in text handler:', e);
+        ctx.reply("⚠️ خطایی رخ داد. لطفاً دوباره تلاش کنید.");
     }
 });
 
 // --- Server ---
 const PORT = process.env.PORT || 3000;
 const webhookPath = `/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+
 bot.telegram.setWebhook(`${process.env.URL}${webhookPath}`);
 app.use(bot.webhookCallback(webhookPath));
-app.listen(PORT, '0.0.0.0', () => console.log(`Running on ${PORT}`));
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Bot running on port ${PORT}`);
+    console.log(`📡 Webhook: ${process.env.URL}${webhookPath}`);
+});
